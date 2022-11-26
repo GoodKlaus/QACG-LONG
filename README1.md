@@ -2,16 +2,6 @@
 Codebase for integrated model QACG-LONG that is capable to perform targeted aspect-based sentiment analysis at document level. The code is imported from QACG-BERT's open-source code and HuggingFace library's open-source code for Longformer model.
 
 ## Quick start
-### Download Pretrained BERT Model
-You will have to download pretrained BERT model in order to execute the fine-tune pipeline. We recommand to use models provided by the official release on BERT from [BERT-Base (Google's pre-trained models)](https://github.com/google-research/bert). Note that their model is in tensorflow format. To convert tensorflow model to pytorch model, you can use the helper script to do that. For example,
-```bash
-cd code/
-python convert_tf_checkpoint_to_pytorch.py \
---tf_checkpoint_path uncased_L-12_H-768_A-12/bert_model.ckpt \
---bert_config_file uncased_L-12_H-768_A-12/bert_config.json \
---pytorch_dump_path uncased_L-12_H-768_A-12/pytorch_model.bin
-```
-
 ### Datasets
 The processed dataset from two versions of PerSent dataset that could be applied to each model directly are listed in the following table. The process of generating each dataset could be referred to ``code/PerSent V1 generation.ipynb`` and ``code/PerSent V2 generation.ipynb``.
 |            |                                                                                                                                  PerSent V1                                                                                                                                  |                                                                                                                                                             PerSent V2                                                                                                                                                             |
@@ -20,8 +10,8 @@ The processed dataset from two versions of PerSent dataset that could be applied
 | Longformer | train_longformer_4topics_auxiliary.csv<br />train_longformer_7topics_auxiliary.csv<br /> dev_longformer_4topics_auxiliary.csv<br />dev_longformer_7topics_auxiliary.csv<br /> random_test_longformer_4topics_auxiliary.csv<br />random_test_longformer_7topics_auxiliary.csv | train_longformer_4topics_auxiliary_noNeuMix.csv<br />train_longformer_7topics_auxiliary_noNeuMix.csv<br /> dev_longformer_4topics_auxiliary_noNeuMix.csv<br />dev_longformer_7topics_auxiliary_noNeuMix.csv<br /> random_test_longformer_4topics_auxiliary_noNeuMix.csv<br />random_test_longformer_7topics_auxiliary_noNeuMix.csv |
 |  QACG-LONG |                               train_longformer_4topics.csv<br />train_longformer_7topics.csv<br /> dev_longformer_4topics.csv<br />dev_longformer_7topics.csv<br /> random_test_longformer_4topics.csv<br />random_test_longformer_7topics.csv                               |                                                                train_4topics_noNeuMix.csv<br />train_7topics_noNeuMix.csv<br /> dev_4topics_noNeuMix.csv<br />dev_7topics_noNeuMix.csv<br /> random_test_4topics_noNeuMix.csv<br />random_test_7topics_noNeuMix.csv                                                                |
 
-### Train QACG-LONG
-To train QACG-LONG model, you could utilize the following code snippet
+### Train QACG-BERT, Longformer and QACG-LONG
+To train the models, you could refer to the following code snippet
 ```bash
 cd code/
 CUDA_VISIBLE_DEVICES=0,1,2,3 python run_classifier.py \
