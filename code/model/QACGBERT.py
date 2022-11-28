@@ -89,7 +89,6 @@ class BertConfig(object):
                 initializer_range=0.02,
                 full_pooler=False): # this is for transformer-like BERT
         """Constructs BertConfig.
-
         Args:
             vocab_size: Vocabulary size of `inputs_ids` in `BertModel`.
             hidden_size: Size of the encoder layers and the pooler layer.
@@ -442,7 +441,6 @@ class ContextBertModel(nn.Module):
     """
     def __init__(self, config: BertConfig):
         """Constructor for BertModel.
-
         Args:
             config: `BertConfig` instance.
         """
@@ -451,7 +449,7 @@ class ContextBertModel(nn.Module):
         self.encoder = ContextBERTEncoder(config)
         self.pooler = ContextBERTPooler(config)
 
-        self.context_embeddings = nn.Embedding(2*4, config.hidden_size)
+        self.context_embeddings = nn.Embedding(4*4, config.hidden_size)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None,
                 # optional parameters for saving context information
