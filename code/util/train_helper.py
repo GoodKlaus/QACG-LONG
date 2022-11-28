@@ -26,12 +26,18 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data.sampler import RandomSampler, SequentialSampler, WeightedRandomSampler
 from tqdm import tqdm, trange
-from transformers import LongformerTokenizer
+from transformers import LongformerTokenizer, LongformerConfig, LongformerForSequenceClassification
 
 from util.optimization import BERTAdam
 from util.processor import (Sentihood_NLI_M_Processor,
                             Semeval_NLI_M_Processor,
-                            Persent_Processor)
+                            PersentV1_Processor,
+                            PersentV2_Processor,
+                            PersentV1_Para_Processor,
+                            PersentV2_Para_Processor,
+                            PersentV1_Longformer_Processor,
+                            PersentV2_Longformer_Processor
+                           )
 
 from util.tokenization import *
 
@@ -46,7 +52,12 @@ logger = logging.getLogger(__name__)
 processors = {
     "sentihood_NLI_M":Sentihood_NLI_M_Processor,
     "semeval_NLI_M":Semeval_NLI_M_Processor,
-    "persent":Persent_Processor
+    "persentv1":PersentV1_Processor,
+    "persentv2":PersentV2_Processor,
+    "persentv1_para":PersentV1_Para_Processor,
+    "persentv2_para":PersentV2_Para_Processor,
+    "persentv1_longformer":PersentV1_Longformer_Processor,
+    "persentv2_longformer":PersentV2_Longformer_Processor
 }
 
 context_id_map_sentihood = {'location - 1 - general':0,
@@ -64,7 +75,7 @@ context_id_map_semeval = {'price':0,
                          'ambience':3,
                          'service':4}
 
-context_id_map_persent = {'[TGT] - politics': 0,
+context_id_map_persentv1 = {'[TGT] - politics': 0,
                           '[TGT] - recreation': 1,
                           '[TGT] - computer': 2,
                           '[TGT] - religion': 3,
@@ -72,10 +83,41 @@ context_id_map_persent = {'[TGT] - politics': 0,
                           '[TGT] - sale': 5,
                           '[TGT] - general': 6}
 
-# context_id_map_persent = {'[TGT] - politics': 0,
-#                           '[TGT] - general': 1,
-#                           '[TGT] - recreation': 2,
-#                           '[TGT] - science': 3}
+context_id_map_persentv2 = {'[TGT] - work occupation': 0,
+                          '[TGT] - crime justice system': 1,
+                          '[TGT] - digital online': 2,
+                          '[TGT] - social inequality human rights': 3,
+                          '[TGT] - economic issues': 4,
+                          '[TGT] - other not a social issue': 5,
+                          '[TGT] - public health': 6,
+                          '[TGT] - other': 7,
+                          '[TGT] - environmental': 8,
+                          '[TGT] - terrorism': 9,
+                          '[TGT] - religion': 10,
+                          '[TGT] - corruption': 11,
+                          '[TGT] - education': 12}
+
+context_id_map_persentv1_long = {'politics': 0,
+                          'recreation': 1,
+                          'computer': 2,
+                          'religion': 3,
+                          'science': 4,
+                          'sale': 5,
+                          'general': 6}
+
+context_id_map_persentv2_long = {'work occupation': 0,
+                          'crime justice system': 1,
+                          'digital online': 2,
+                          'social inequality human rights': 3,
+                          'economic issues': 4,
+                          'other not a social issue': 5,
+                          'public health': 6,
+                          'other': 7,
+                          'environmental': 8,
+                          'terrorism': 9,
+                          'religion': 10,
+                          'corruption': 11,
+                          'education': 12}
 
 
 def _truncate_seq_pair(tokens_a, tokens_b, max_length):
@@ -111,7 +153,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
                                  tokenizer, max_context_length,
                                  # if this is true, the context will not be
                                  # appened into the inputs
-                                 context_standalone, args):
+                                 context_standalone, task):
     """Loads a data file into a list of `InputBatch`s."""
 
     label_map = {}
@@ -181,12 +223,22 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         context_ids = []
         if tokens_context:
             # let us encode context into single int
-            if args.task_name == "sentihood_NLI_M":
+            if task == "sentihood_NLI_M":
                 context_ids = [context_id_map_sentihood[example.text_b]]
-            elif args.task_name == "semeval_NLI_M":
+            elif task == "semeval_NLI_M":
                 context_ids = [context_id_map_semeval[example.text_b]]
-            else:
-                context_ids = [context_id_map_persent[example.text_b]]
+            elif task == "persentv1":
+                context_ids = [context_id_map_persentv1[example.text_b]]
+            elif task == "persentv2":
+                context_ids = [context_id_map_persentv2[example.text_b]]
+            elif task == "persentv1_para":
+                context_ids = [context_id_map_persentv1[example.text_b]]
+            elif task == "persentv2_para":
+                context_ids = [context_id_map_persentv2[example.text_b]]
+            elif task == "persentv1_longformer":
+                context_ids = [context_id_map_persentv1_long[example.text_c]]
+            elif task == "persentv2_longformer":
+                context_ids = [context_id_map_persentv2_long[example.text_c]]
 
         # The mask has 1 for real tokens and 0 for padding tokens. Only real
         # tokens are attended to.
@@ -265,7 +317,7 @@ def getModelOptimizerTokenizer(model_type, vocab_file,
 
     # this is the model we develop
     # Load tokenizer for different model types
-    if model_type == "QACGLONG":
+    if model_type == "QACGLONG" or model_type == "LONG":
         tokenizer = LongformerTokenizer.from_pretrained("allenai/longformer-base-4096")
     else:
         tokenizer = FullTokenizer(vocab_file=vocab_file, do_lower_case=do_lower_case, pretrain=False)
@@ -286,6 +338,9 @@ def getModelOptimizerTokenizer(model_type, vocab_file,
             type_vocab_size=2,
             initializer_range=0.02
         )
+        if model_type == "LONG":
+            model_config = LongformerConfig()
+
     logger.info("*** Model Config ***")
     logger.info(model_config.to_json_string())
     # overwrite the vocab size to be exact. this also save space incase
@@ -293,7 +348,7 @@ def getModelOptimizerTokenizer(model_type, vocab_file,
 
     if model_type == "QACGLONG":
         model_config.vocab_size = tokenizer.vocab_size
-    else: 
+    elif model_type != "LONG": 
         model_config.vocab_size = len(tokenizer.vocab)
     # model and optimizer
     if model_type == "CGBERT":
@@ -313,6 +368,11 @@ def getModelOptimizerTokenizer(model_type, vocab_file,
                     model_config, len(label_list),
                     init_weight=True,
                     init_lrp=init_lrp)
+    elif model_type == "LONG":
+        logger.info("model = LONG")
+        model = LongformerForSequenceClassification.from_pretrained('allenai/longformer-base-4096',
+                                                           gradient_checkpointing=False,
+                                                           attention_window = 512)
     else:
         assert False
     if init_checkpoint is not None:
@@ -320,18 +380,30 @@ def getModelOptimizerTokenizer(model_type, vocab_file,
         logger.info("retraining with saved model.")
         # only load fields that are avaliable
         if "checkpoint" in init_checkpoint:
-            logger.info("loading a best checkpoint, not BERT pretrain.")
-            # we need to add handling logic specially for parallel gpu trainign
-            state_dict = torch.load(init_checkpoint, map_location='cpu')
-            from collections import OrderedDict
-            new_state_dict = OrderedDict()
-            for k, v in state_dict.items():
-                if k.startswith('module.'):
-                    name = k[7:] # remove 'module.' of dataparallel
-                    new_state_dict[name]=v
-                else:
-                    new_state_dict[k]=v
-            model.load_state_dict(new_state_dict)
+            if model_type == "LONG":
+                model.load_state_dict(torch.load(init_checkpoint))
+            else:
+                logger.info("loading a best checkpoint, not BERT pretrain.")
+                # we need to add handling logic specially for parallel gpu trainign
+                state_dict = torch.load(init_checkpoint, map_location='cpu')
+                from collections import OrderedDict
+                new_state_dict = OrderedDict()
+                for k, v in state_dict.items():
+                    if k.startswith('module.'):
+                        name = k[7:] # remove 'module.' of dataparallel
+                        new_state_dict[name]=v
+                    else:
+                        new_state_dict[k]=v
+                if model_type == "QACGLONG":
+                    # Update config to finetune token type embeddings
+                    model.config.type_vocab_size = 2 
+
+                    # Create a new Embeddings layer, with 2 possible segments IDs instead of 1
+                    model.bert.embeddings.token_type_embeddings = nn.Embedding(2, model.config.hidden_size)
+
+                    # Initialize it
+                    model.bert.embeddings.token_type_embeddings.weight.data.normal_(mean=0.0, std=model.config.initializer_range)
+                model.load_state_dict(new_state_dict)
         else:
             if model_type == "QACGLONG":
                 # Only suitable for Longformer pre-trained model
@@ -429,6 +501,7 @@ def system_setups(args):
     # system related setups
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+#         device = torch.device("cpu")
         n_gpu = torch.cuda.device_count()
     else:
         device = torch.device("cuda", args.local_rank)
@@ -504,7 +577,7 @@ def data_and_model_loader(device, n_gpu, args, sampler="randomWeight"):
     train_features = convert_examples_to_features(
         train_examples, label_list, args.max_seq_length,
         tokenizer, args.max_context_length,
-        args.context_standalone, args)
+        args.context_standalone, args.task_name)
 
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_examples))
@@ -529,12 +602,16 @@ def data_and_model_loader(device, n_gpu, args, sampler="randomWeight"):
                 sampler_weights = make_weights_for_balanced_classes(all_label_ids, 5)
             elif args.task_name == "sentihood_NLI_M":
                 sampler_weights = make_weights_for_balanced_classes(all_label_ids, 3)
-            else:
+            elif args.task_name == "persentv1" or args.task_name == "persentv1_para":
                 sampler_weights = make_weights_for_balanced_classes(all_label_ids, 4)
+            elif args.task_name == "persentv2" or args.task_name == "persentv2_para":
+                sampler_weights = make_weights_for_balanced_classes(all_label_ids, 3)
+            elif args.task_name == "persentv1_longformer" or args.task_name == "persentv2_longformer":
+                sampler_weights = make_weights_for_balanced_classes(all_label_ids, 2)
             train_sampler = WeightedRandomSampler(sampler_weights, len(train_data), replacement=True)
     else:
         train_sampler = DistributedSampler(train_data)
-    train_dataloader = DataLoader(train_data, sampler=train_sampler, 
+    train_dataloader = DataLoader(train_data, sampler=train_sampler,
                                   batch_size=args.train_batch_size)
 
     # test set
@@ -542,7 +619,7 @@ def data_and_model_loader(device, n_gpu, args, sampler="randomWeight"):
     test_features = convert_examples_to_features(
         test_examples, label_list, args.max_seq_length,
         tokenizer, args.max_context_length,
-        args.context_standalone, args)
+        args.context_standalone, args.task_name)
 
     all_input_ids = torch.tensor([f.input_ids for f in test_features], dtype=torch.long)
     all_input_mask = torch.tensor([f.input_mask for f in test_features], dtype=torch.long)
@@ -592,12 +669,16 @@ def evaluate_fast(test_dataloader, model, device, n_gpu, args):
             label_ids = label_ids.to(device)
             seq_lens = seq_lens.to(device)
             context_ids = context_ids.to(device)
-
-            # intentially with gradient
-            tmp_test_loss, logits, _, _, _, _ = \
-                model(input_ids, segment_ids, input_mask, seq_lens,
-                        device=device, labels=label_ids,
-                        context_ids=context_ids)
+            
+            if args.task_name == "persentv1_longformer" or args.task_name == "persentv2_longformer":
+                tmp_test_loss, logits = \
+                    model(input_ids, input_mask, labels=label_ids, return_dict=False)
+            else:
+                # intentially with gradient
+                tmp_test_loss, logits, _, _, _, _ = \
+                    model(input_ids, segment_ids, input_mask, seq_lens,
+                            device=device, labels=label_ids,
+                            context_ids=context_ids)
 
             logits = F.softmax(logits, dim=-1)
             logits = logits.detach().cpu().numpy()
@@ -650,16 +731,56 @@ def evaluate_fast(test_dataloader, model, device, n_gpu, args):
                   'sentiment_Acc_4_classes': sentiment_Acc_4_classes,
                   'sentiment_Acc_3_classes': sentiment_Acc_3_classes,
                   'sentiment_Acc_2_classes': sentiment_Acc_2_classes}
-    else:
-        aspect_strict_Acc = persent_strict_acc(y_true, y_pred)
-        aspect_Macro_F1 = persent_macro_F1(y_true, y_pred)
-        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persent_AUC_Acc(y_true, score)
-        result = {'epoch': epoch,
-                  'global_step': global_step,
-                  'loss': loss_tr,
-                  'test_loss': test_loss,
-                  'test_accuracy': test_accuracy,
-                  'aspect_strict_Acc': aspect_strict_Acc,
+    elif args.task_name == "persentv1":
+        aspect_strict_Acc = persent_strict_acc_7(y_true, y_pred)
+        aspect_Macro_F1 = persent_macro_F1_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV1_AUC_Acc_7(y_true, score)
+        result = {'aspect_strict_Acc': aspect_strict_Acc,
+                  'aspect_Macro_F1': aspect_Macro_F1,
+                  'aspect_Macro_AUC': aspect_Macro_AUC,
+                  'sentiment_Acc': sentiment_Acc,
+                  'sentiment_Macro_AUC': sentiment_Macro_AUC}
+    elif args.task_name == "persentv2":
+        aspect_strict_Acc = persent_strict_acc_7(y_true, y_pred)
+        aspect_Macro_F1 = persent_macro_F1_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV2_AUC_Acc_7(y_true, score)
+        result = {'aspect_strict_Acc': aspect_strict_Acc,
+                  'aspect_Macro_F1': aspect_Macro_F1,
+                  'aspect_Macro_AUC': aspect_Macro_AUC,
+                  'sentiment_Acc': sentiment_Acc,
+                  'sentiment_Macro_AUC': sentiment_Macro_AUC}
+    elif args.task_name == "persentv1_para":
+        aspect_strict_Acc = persent_strict_acc_7(y_true, y_pred)
+        aspect_Macro_F1 = persent_macro_F1_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV1_AUC_Acc_7(y_true, score)
+        result = {'aspect_strict_Acc': aspect_strict_Acc,
+                  'aspect_Macro_F1': aspect_Macro_F1,
+                  'aspect_Macro_AUC': aspect_Macro_AUC,
+                  'sentiment_Acc': sentiment_Acc,
+                  'sentiment_Macro_AUC': sentiment_Macro_AUC}
+    elif args.task_name == "persentv2_para":
+        aspect_strict_Acc = persent_strict_acc_7(y_true, y_pred)
+        aspect_Macro_F1 = persent_macro_F1_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV2_AUC_Acc_7(y_true, score)
+        result = {'aspect_strict_Acc': aspect_strict_Acc,
+                  'aspect_Macro_F1': aspect_Macro_F1,
+                  'aspect_Macro_AUC': aspect_Macro_AUC,
+                  'sentiment_Acc': sentiment_Acc,
+                  'sentiment_Macro_AUC': sentiment_Macro_AUC}
+    elif args.task_name == "persentv1_longformer":
+        aspect_strict_Acc = persentV1_strict_acc_long_7(y_true, y_pred)
+        aspect_Macro_F1 = persentV1_macro_F1_long_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV1_AUC_Acc_long_7(y_true, score)
+        result = {'aspect_strict_Acc': aspect_strict_Acc,
+                  'aspect_Macro_F1': aspect_Macro_F1,
+                  'aspect_Macro_AUC': aspect_Macro_AUC,
+                  'sentiment_Acc': sentiment_Acc,
+                  'sentiment_Macro_AUC': sentiment_Macro_AUC}
+    elif args.task_name == "persentv2_longformer":
+        aspect_strict_Acc = persentV2_strict_acc_long_7(y_true, y_pred)
+        aspect_Macro_F1 = persentV2_macro_F1_long_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV2_AUC_Acc_long_7(y_true, score)
+        result = {'aspect_strict_Acc': aspect_strict_Acc,
                   'aspect_Macro_F1': aspect_Macro_F1,
                   'aspect_Macro_AUC': aspect_Macro_AUC,
                   'sentiment_Acc': sentiment_Acc,
@@ -698,12 +819,16 @@ def evaluate(test_dataloader, model, device, n_gpu, nb_tr_steps, tr_loss, epoch,
             label_ids = label_ids.to(device)
             seq_lens = seq_lens.to(device)
             context_ids = context_ids.to(device)
-
-            # intentially with gradient
-            tmp_test_loss, logits, _, _, _, _ = \
-                model(input_ids, segment_ids, input_mask, seq_lens,
-                        device=device, labels=label_ids,
-                        context_ids=context_ids)
+            
+            if args.task_name == "persentv1_longformer" or args.task_name == "persentv2_longformer":
+                tmp_test_loss, logits = \
+                    model(input_ids, input_mask, labels=label_ids, return_dict=False)
+            else:
+                # intentially with gradient
+                tmp_test_loss, logits, _, _, _, _ = \
+                    model(input_ids, segment_ids, input_mask, seq_lens,
+                            device=device, labels=label_ids,
+                            context_ids=context_ids)
 
             logits = F.softmax(logits, dim=-1)
             logits = logits.detach().cpu().numpy()
@@ -768,10 +893,80 @@ def evaluate(test_dataloader, model, device, n_gpu, nb_tr_steps, tr_loss, epoch,
                   'sentiment_Acc_4_classes': sentiment_Acc_4_classes,
                   'sentiment_Acc_3_classes': sentiment_Acc_3_classes,
                   'sentiment_Acc_2_classes': sentiment_Acc_2_classes}
-    else:
-        aspect_strict_Acc = persent_strict_acc(y_true, y_pred)
-        aspect_Macro_F1 = persent_macro_F1(y_true, y_pred)
-        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persent_AUC_Acc(y_true, score)
+    elif args.task_name == "persentv1":
+        aspect_strict_Acc = persent_strict_acc_7(y_true, y_pred)
+        aspect_Macro_F1 = persent_macro_F1_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV1_AUC_Acc_7(y_true, score)
+        result = {'epoch': epoch,
+                  'global_step': global_step,
+                  'loss': loss_tr,
+                  'test_loss': test_loss,
+                  'test_accuracy': test_accuracy,
+                  'aspect_strict_Acc': aspect_strict_Acc,
+                  'aspect_Macro_F1': aspect_Macro_F1,
+                  'aspect_Macro_AUC': aspect_Macro_AUC,
+                  'sentiment_Acc': sentiment_Acc,
+                  'sentiment_Macro_AUC': sentiment_Macro_AUC}
+    elif args.task_name == "persentv2":
+        aspect_strict_Acc = persent_strict_acc_7(y_true, y_pred)
+        aspect_Macro_F1 = persent_macro_F1_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV2_AUC_Acc_7(y_true, score)
+        result = {'epoch': epoch,
+                  'global_step': global_step,
+                  'loss': loss_tr,
+                  'test_loss': test_loss,
+                  'test_accuracy': test_accuracy,
+                  'aspect_strict_Acc': aspect_strict_Acc,
+                  'aspect_Macro_F1': aspect_Macro_F1,
+                  'aspect_Macro_AUC': aspect_Macro_AUC,
+                  'sentiment_Acc': sentiment_Acc,
+                  'sentiment_Macro_AUC': sentiment_Macro_AUC}
+    elif args.task_name == "persentv1_para":
+        aspect_strict_Acc = persent_strict_acc_7(y_true, y_pred)
+        aspect_Macro_F1 = persent_macro_F1_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV1_AUC_Acc_7(y_true, score)
+        result = {'epoch': epoch,
+                  'global_step': global_step,
+                  'loss': loss_tr,
+                  'test_loss': test_loss,
+                  'test_accuracy': test_accuracy,
+                  'aspect_strict_Acc': aspect_strict_Acc,
+                  'aspect_Macro_F1': aspect_Macro_F1,
+                  'aspect_Macro_AUC': aspect_Macro_AUC,
+                  'sentiment_Acc': sentiment_Acc,
+                  'sentiment_Macro_AUC': sentiment_Macro_AUC}
+    elif args.task_name == "persentv2_para":
+        aspect_strict_Acc = persent_strict_acc_7(y_true, y_pred)
+        aspect_Macro_F1 = persent_macro_F1_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV2_AUC_Acc_7(y_true, score)
+        result = {'epoch': epoch,
+                  'global_step': global_step,
+                  'loss': loss_tr,
+                  'test_loss': test_loss,
+                  'test_accuracy': test_accuracy,
+                  'aspect_strict_Acc': aspect_strict_Acc,
+                  'aspect_Macro_F1': aspect_Macro_F1,
+                  'aspect_Macro_AUC': aspect_Macro_AUC,
+                  'sentiment_Acc': sentiment_Acc,
+                  'sentiment_Macro_AUC': sentiment_Macro_AUC}
+    elif args.task_name == "persentv1_longformer":
+        aspect_strict_Acc = persentV1_strict_acc_long_7(y_true, y_pred)
+        aspect_Macro_F1 = persentV1_macro_F1_long_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV1_AUC_Acc_long_7(y_true, score)
+        result = {'epoch': epoch,
+                  'global_step': global_step,
+                  'loss': loss_tr,
+                  'test_loss': test_loss,
+                  'test_accuracy': test_accuracy,
+                  'aspect_strict_Acc': aspect_strict_Acc,
+                  'aspect_Macro_F1': aspect_Macro_F1,
+                  'aspect_Macro_AUC': aspect_Macro_AUC,
+                  'sentiment_Acc': sentiment_Acc,
+                  'sentiment_Macro_AUC': sentiment_Macro_AUC}
+    elif args.task_name == "persentv2_longformer":
+        aspect_strict_Acc = persentV2_strict_acc_long_7(y_true, y_pred)
+        aspect_Macro_F1 = persentV2_macro_F1_long_7(y_true, y_pred)
+        aspect_Macro_AUC, sentiment_Acc, sentiment_Macro_AUC = persentV2_AUC_Acc_long_7(y_true, score)
         result = {'epoch': epoch,
                   'global_step': global_step,
                   'loss': loss_tr,
@@ -793,18 +988,14 @@ def evaluate(test_dataloader, model, device, n_gpu, nb_tr_steps, tr_loss, epoch,
     # save for each time point
     if args.output_dir:
         torch.save(model.state_dict(), args.output_dir + "checkpoint_" + str(global_step) + ".bin")
-        if args.task_name == "sentihood_NLI_M":
-            if aspect_strict_Acc > global_best_acc:
-                torch.save(model.state_dict(), args.output_dir + "best_checkpoint.bin")
-                global_best_acc = aspect_strict_Acc
-        elif args.task_name == "persent":
-            if aspect_strict_Acc > global_best_acc:
-                torch.save(model.state_dict(), args.output_dir + "best_checkpoint.bin")
-                global_best_acc = aspect_strict_Acc
-        else:
+        if args.task_name == "semeval_NLI_M":
             if aspect_F > global_best_acc:
                 torch.save(model.state_dict(), args.output_dir + "best_checkpoint.bin")
                 global_best_acc = aspect_F
+        else:
+            if aspect_strict_Acc > global_best_acc:
+                torch.save(model.state_dict(), args.output_dir + "best_checkpoint.bin")
+                global_best_acc = aspect_strict_Acc
 
     return global_best_acc
 
@@ -813,7 +1004,7 @@ def step_train(train_dataloader, test_dataloader, model, optimizer,
                output_log_file, epoch, global_best_acc, args):
     tr_loss = 0
     nb_tr_examples, nb_tr_steps = 0, 0
-    pbar = tqdm(train_dataloader, desc="Iteration")
+    pbar = tqdm(train_dataloader, desc="Iteration", disable=True)
     for step, batch in enumerate(pbar):
         model.train()
         if torch.cuda.is_available():
@@ -833,8 +1024,11 @@ def step_train(train_dataloader, test_dataloader, model, optimizer,
         label_ids = label_ids.to(device)
         seq_lens = seq_lens.to(device)
         context_ids = context_ids.to(device)
-
-        loss, _, _, _, _, _ = \
+        
+        if args.task_name == "persentv1_longformer" or args.task_name == "persentv2_longformer":
+            loss, _ = model(input_ids, input_mask, labels=label_ids, return_dict=False)
+        else:
+            loss, _, _, _, _, _ = \
             model(input_ids, segment_ids, input_mask, seq_lens,
                             device=device, labels=label_ids,
                             context_ids=context_ids)

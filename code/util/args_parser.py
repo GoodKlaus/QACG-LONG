@@ -6,7 +6,7 @@ parser.add_argument("--task_name",
                     default=None,
                     type=str,
                     required=True,
-                    choices=["sentihood_NLI_M", "semeval_NLI_M", "persent"],
+                    choices=["sentihood_NLI_M", "semeval_NLI_M", "persentv1", "persentv2", "persentv1_para", "persentv2_para", "persentv1_longformer", "persentv2_longformer"],
                     help="The name of the task to train.")
 parser.add_argument("--data_dir",
                     default=None,
@@ -27,7 +27,7 @@ parser.add_argument('--model_type',
                     type=str,
                     default=None,
                     required=True,
-                    choices=["CGBERT", "QACGBERT", "QACGLONG"],
+                    choices=["CGBERT", "QACGBERT", "QACGLONG", "LONG"],
                     help='type of model to train')    
 ## Other parameters
 parser.add_argument("--context_standalone",
